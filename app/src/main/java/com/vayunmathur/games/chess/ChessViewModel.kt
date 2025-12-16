@@ -84,7 +84,6 @@ class ChessViewModel : ViewModel() {
         _uiState.update {
             it.copy(
                 board = newBoard,
-                turn = if (it.turn == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE,
                 gameStatus = getGameStatus(newBoard)
             )
         }
@@ -119,10 +118,10 @@ class ChessViewModel : ViewModel() {
     }
 
     private fun getGameStatus(board: Board): String? {
-        val turn = if (_uiState.value.turn == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE
         return when {
-            board.isCheckmate(turn) -> "Checkmate! ${if (turn == PieceColor.WHITE) "Black" else "White"} wins."
-            board.isKingInCheck(turn) -> "Check!"
+            board.isCheckmate(PieceColor.WHITE) -> "Checkmate! Black wins."
+            board.isCheckmate(PieceColor.BLACK) -> "Checkmate! White wins."
+            board.isKingInCheck(PieceColor.WHITE) || board.isKingInCheck(PieceColor.BLACK) -> "Check!"
             else -> null
         }
     }

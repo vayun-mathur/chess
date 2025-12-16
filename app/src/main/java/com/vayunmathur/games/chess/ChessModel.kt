@@ -219,10 +219,10 @@ data class Board(
         }
 
         return this.copy(
-            pieces = newPieces.map { it.toList() },
+            pieces = newPieces,
             promotionPosition = null,
             moves = updatedMoves,
-            lastMove = lastMove?.copy(promotedTo = to)
+            lastMove = lastMove?.copy(promotedTo = to),
         )
     }
 

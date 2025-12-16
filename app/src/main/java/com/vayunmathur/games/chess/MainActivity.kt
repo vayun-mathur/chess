@@ -163,6 +163,7 @@ fun ChessGame(
             Button(onClick = onNewGame) {
                 Text("New Game")
             }
+
             uiState.gameStatus?.let {
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(it, fontSize = 24.sp, fontWeight = FontWeight.Bold)
