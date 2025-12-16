@@ -1,16 +1,25 @@
 package com.vayunmathur.games.chess
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+sealed class GameMode {
+    object TwoPlayer : GameMode()
+    data class VsAI(val playerColor: PieceColor) : GameMode()
+}
 
 data class ChessUiState(
     val board: Board = Board.initialState,
     val selectedPiece: Position? = null,
+    val gameMode: GameMode = GameMode.TwoPlayer,
     val turn: PieceColor = PieceColor.WHITE,
-    val gameStatus: String? = null
+    val gameStatus: String? = null,
+    val isBoardFlipped: Boolean = false
 )
 
 class ChessViewModel : ViewModel() {
@@ -18,30 +27,48 @@ class ChessViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(ChessUiState())
     val uiState: StateFlow<ChessUiState> = _uiState.asStateFlow()
 
-    fun onSquareClick(position: Position) {
-        val currentState = _uiState.value
-        if (currentState.gameStatus != null || currentState.board.promotionPosition != null) return
+    fun onNewGame(gameMode: GameMode) {
+        val isFlipped = gameMode is GameMode.VsAI && gameMode.playerColor == PieceColor.BLACK
+        _uiState.value = ChessUiState(gameMode = gameMode, isBoardFlipped = isFlipped)
+        if (gameMode is GameMode.VsAI && gameMode.playerColor == PieceColor.BLACK) {
+            makeAiMove()
+        }
+    }
 
-        val piece = currentState.board.pieces[position.row][position.col]
-        if (currentState.selectedPiece == null) {
-            if (piece != null && piece.color == currentState.turn) {
+    fun onSquareClick(position: Position) {
+        val selectedPiece = _uiState.value.selectedPiece
+        val board = _uiState.value.board
+        val pieceAtPosition = board.pieces[position.row][position.col]
+
+        if(isGameOver(board)) {
+            return
+        }
+
+        if (_uiState.value.gameMode is GameMode.VsAI) {
+            val playerColor = (_uiState.value.gameMode as GameMode.VsAI).playerColor
+            if (_uiState.value.turn != playerColor) {
+                return // Not player's turn
+            }
+        }
+
+        if (selectedPiece == null) {
+            if (pieceAtPosition != null && pieceAtPosition.color == _uiState.value.turn) {
                 _uiState.update { it.copy(selectedPiece = position) }
             }
         } else {
-            if (currentState.board.isValidMove(currentState.selectedPiece, position)) {
-                val newBoard = currentState.board.movePiece(currentState.selectedPiece, position)
+            if (board.isValidMove(selectedPiece, position)) {
+                val newBoard = board.movePiece(selectedPiece, position)
                 _uiState.update {
                     it.copy(
                         board = newBoard,
-                        turn = if (newBoard.promotionPosition == null) {
-                            if (it.turn == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE
-                        } else {
-                            it.turn
-                        },
-                        selectedPiece = null
+                        selectedPiece = null,
+                        turn = if (it.turn == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE,
+                        gameStatus = getGameStatus(newBoard)
                     )
                 }
-                checkGameStatus()
+                if (_uiState.value.gameMode is GameMode.VsAI) {
+                    if(!isGameOver(newBoard)) makeAiMove()
+                }
             } else {
                 _uiState.update { it.copy(selectedPiece = null) }
             }
@@ -49,27 +76,47 @@ class ChessViewModel : ViewModel() {
     }
 
     fun onPromote(pieceType: PieceType) {
-        val currentState = _uiState.value
-        val newBoard = currentState.board.promotePawn(currentState.board.promotionPosition!!, pieceType)
+        val board = _uiState.value.board
+        val promotionPosition = board.promotionPosition ?: return
+        val newBoard = board.promotePawn(promotionPosition, pieceType)
         _uiState.update {
             it.copy(
                 board = newBoard,
-                turn = if (it.turn == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE
+                turn = if (it.turn == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE,
+                gameStatus = getGameStatus(newBoard)
             )
         }
-        checkGameStatus()
     }
 
     fun resetGame() {
         _uiState.value = ChessUiState()
     }
 
-    private fun checkGameStatus() {
-        val currentState = _uiState.value
-        if (currentState.board.isCheckmate(currentState.turn)) {
+    private fun makeAiMove() {
+        viewModelScope.launch {
+            val board = _uiState.value.board
+            val bestMove = board.bestNextMove()
+            val newBoard = board.movePiece(bestMove.start, bestMove.end)
             _uiState.update {
-                it.copy(gameStatus = "Checkmate! ${if (currentState.turn == PieceColor.WHITE) "Black" else "White"} wins.")
+                it.copy(
+                    board = newBoard,
+                    turn = if (it.turn == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE,
+                    gameStatus = getGameStatus(newBoard)
+                )
             }
+        }
+    }
+
+    fun isGameOver(board: Board): Boolean {
+        return board.isCheckmate(PieceColor.WHITE) || board.isCheckmate(PieceColor.BLACK)
+    }
+
+    private fun getGameStatus(board: Board): String? {
+        val turn = if (_uiState.value.turn == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE
+        return when {
+            board.isCheckmate(turn) -> "Checkmate! ${if (turn == PieceColor.WHITE) "Black" else "White"} wins."
+            board.isKingInCheck(turn) -> "Check!"
+            else -> null
         }
     }
 }

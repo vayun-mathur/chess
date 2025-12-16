@@ -32,10 +32,14 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -54,14 +58,73 @@ class MainActivity : ComponentActivity() {
             ChessTheme {
                 val viewModel: ChessViewModel = viewModel()
                 val uiState by viewModel.uiState.collectAsState()
+
+                var showNewGameDialog by remember { mutableStateOf(true) }
+
                 ChessGame(
                     uiState = uiState,
                     onSquareClick = viewModel::onSquareClick,
                     onPromote = viewModel::onPromote,
-                    onResetGame = viewModel::resetGame
+                    onNewGame = { showNewGameDialog = true }
                 )
+
+                if (showNewGameDialog) {
+                    NewGameDialog(
+                        onNewGame = {
+                            viewModel.onNewGame(it)
+                            showNewGameDialog = false
+                        }
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+fun NewGameDialog(onNewGame: (GameMode) -> Unit) {
+    var showColorSelection by remember { mutableStateOf<((PieceColor) -> Unit)?>(null) }
+
+    if (showColorSelection != null) {
+        AlertDialog(
+            onDismissRequest = { showColorSelection = null },
+            title = { Text("Select Your Color") },
+            text = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Button(onClick = { showColorSelection?.invoke(PieceColor.WHITE) }) {
+                        Text("White")
+                    }
+                    Button(onClick = { showColorSelection?.invoke(PieceColor.BLACK) }) {
+                        Text("Black")
+                    }
+                }
+            },
+            confirmButton = { }
+        )
+    } else {
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text(text = "New Game") },
+            text = {
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Button(onClick = { onNewGame(GameMode.TwoPlayer) }) {
+                        Text("2-Player Local")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = {
+                        showColorSelection = {
+                            onNewGame(GameMode.VsAI(it))
+                        }
+                    }) {
+                        Text("Human vs AI")
+                    }
+                }
+            },
+            confirmButton = {}
+        )
     }
 }
 
@@ -70,7 +133,7 @@ fun ChessGame(
     uiState: ChessUiState,
     onSquareClick: (Position) -> Unit,
     onPromote: (PieceType) -> Unit,
-    onResetGame: () -> Unit
+    onNewGame: () -> Unit
 ) {
     if (uiState.board.promotionPosition != null) {
         PawnPromotionDialog(uiState.turn, onPromote = onPromote)
@@ -87,14 +150,18 @@ fun ChessGame(
             CapturedPiecesRow(uiState.board.capturedByBlack)
             Spacer(modifier = Modifier.height(16.dp))
             MovesList(moves = uiState.board.moves, turn = uiState.turn)
-            ChessBoard(uiState.board, uiState.selectedPiece, uiState.turn) { position ->
-                onSquareClick(position)
-            }
+            ChessBoard(
+                board = uiState.board,
+                selectedPiece = uiState.selectedPiece,
+                turn = uiState.turn,
+                isFlipped = uiState.isBoardFlipped,
+                onSquareClick = onSquareClick
+            )
             Spacer(modifier = Modifier.height(16.dp))
             CapturedPiecesRow(uiState.board.capturedByWhite)
             Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onResetGame) {
-                Text("Reset Game")
+            Button(onClick = onNewGame) {
+                Text("New Game")
             }
             uiState.gameStatus?.let {
                 Spacer(modifier = Modifier.height(16.dp))
@@ -172,11 +239,19 @@ fun CapturedPiecesRow(pieces: List<Piece>) {
 }
 
 @Composable
-fun ChessBoard(board: Board, selectedPiece: Position?, turn: PieceColor, onSquareClick: (Position) -> Unit) {
+fun ChessBoard(
+    board: Board,
+    selectedPiece: Position?,
+    turn: PieceColor,
+    isFlipped: Boolean,
+    onSquareClick: (Position) -> Unit
+) {
     val isKingInCheck = board.isKingInCheck(turn)
-    Column(Modifier
+    Column(
+        Modifier
             .fillMaxWidth()
             .aspectRatio(1f)
+            .graphicsLayer { if (isFlipped) rotationZ = 180f }
     ) {
         for (i in board.pieces.indices) {
             Row(modifier = Modifier.weight(1f)) {
@@ -192,7 +267,9 @@ fun ChessBoard(board: Board, selectedPiece: Position?, turn: PieceColor, onSquar
                             .weight(1f)
                             .aspectRatio(1f)
                             .background(color)
-                            .clickable { onSquareClick(Position(i, j)) }
+                            .clickable {
+                                onSquareClick(Position(i, j))
+                            }
                             .then(
                                 if (isSelected)
                                     Modifier.border(2.dp, Color.Yellow)
@@ -202,7 +279,7 @@ fun ChessBoard(board: Board, selectedPiece: Position?, turn: PieceColor, onSquar
                             )
                     ) {
                         piece?.let {
-                            ChessPiece(it)
+                            ChessPiece(it, isFlipped = isFlipped)
                         }
                     }
                 }
@@ -212,11 +289,12 @@ fun ChessBoard(board: Board, selectedPiece: Position?, turn: PieceColor, onSquar
 }
 
 @Composable
-fun ChessPiece(piece: Piece, size: Dp? = null) {
+fun ChessPiece(piece: Piece, size: Dp? = null, isFlipped: Boolean = false) {
     Image(
         painterResource(id = piece.type.resID),
         "${piece.color} ${piece.type}",
-        if (size != null) Modifier.size(size) else Modifier.fillMaxSize(),
+        (if (size != null) Modifier.size(size) else Modifier.fillMaxSize())
+            .graphicsLayer { if (isFlipped) rotationZ = 180f },
         colorFilter = ColorFilter.tint(if (piece.color == PieceColor.WHITE) Color.White else Color.Black)
     )
 }

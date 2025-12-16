@@ -445,6 +445,30 @@ data class Board(
         return false
     }
 
+    suspend fun bestNextMove(): Move {
+        val validMoves = mutableListOf<Move>()
+        val turn = moves.lastOrNull()?.piece?.color?.let { if (it == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE } ?: PieceColor.WHITE
+
+        for (r in pieces.indices) {
+            for (c in pieces[r].indices) {
+                val piece = pieces[r][c]
+                if (piece != null && piece.color == turn) {
+                    val start = Position(r, c)
+                    for (i in 0..7) {
+                        for (j in 0..7) {
+                            val end = Position(i, j)
+                            if (isValidMove(start, end)) {
+                                validMoves.add(Move(start, end, piece))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return validMoves.random()
+    }
+
     private fun getFileChar(col: Int): Char = 'a' + col
     private fun getRankChar(row: Int): Char = '8' - row
 
