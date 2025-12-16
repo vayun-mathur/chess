@@ -60,7 +60,7 @@ data class Move(
         // 4. Promotion
         if (promotedTo != null) {
             sb.append("=")
-            sb.append(getPieceLetter(promotedTo))
+            sb.append(getPieceLetter(promotedTo!!))
         }
 
         // 5. Check / Checkmate
@@ -458,7 +458,11 @@ data class Board(
                         for (j in 0..7) {
                             val end = Position(i, j)
                             if (isValidMove(start, end)) {
-                                validMoves.add(Move(start, end, piece))
+                                if (isPromotionSquare(piece, end)) {
+                                    validMoves.add(Move(start, end, piece, promotedTo = PieceType.QUEEN))
+                                } else {
+                                    validMoves.add(Move(start, end, piece))
+                                }
                             }
                         }
                     }

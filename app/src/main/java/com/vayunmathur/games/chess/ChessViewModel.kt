@@ -103,7 +103,7 @@ class ChessViewModel : ViewModel() {
         viewModelScope.launch {
             val board = _uiState.value.board
             val bestMove = board.bestNextMove()
-            val newBoard = board.movePiece(bestMove.start, bestMove.end)
+            val newBoard = board.movePiece(bestMove.start, bestMove.end, bestMove.promotedTo)
             _uiState.update {
                 it.copy(
                     board = newBoard,
