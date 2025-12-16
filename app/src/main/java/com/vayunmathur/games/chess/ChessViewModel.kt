@@ -67,7 +67,9 @@ class ChessViewModel : ViewModel() {
                     )
                 }
                 if (_uiState.value.gameMode is GameMode.VsAI) {
-                    if(!isGameOver(newBoard)) makeAiMove()
+                    if (!isGameOver(newBoard) && newBoard.promotionPosition == null) {
+                        makeAiMove()
+                    }
                 }
             } else {
                 _uiState.update { it.copy(selectedPiece = null) }
@@ -85,6 +87,11 @@ class ChessViewModel : ViewModel() {
                 turn = if (it.turn == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE,
                 gameStatus = getGameStatus(newBoard)
             )
+        }
+        if (_uiState.value.gameMode is GameMode.VsAI) {
+            if (!isGameOver(newBoard)) {
+                makeAiMove()
+            }
         }
     }
 
