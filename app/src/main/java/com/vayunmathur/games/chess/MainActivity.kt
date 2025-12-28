@@ -27,9 +27,13 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,10 +47,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vayunmathur.games.chess.ui.theme.ChessTheme
 
@@ -57,12 +61,15 @@ class MainActivity : ComponentActivity() {
         setContent {
             ChessTheme {
                 val viewModel: ChessViewModel = viewModel()
-                val uiState by viewModel.uiState.collectAsState()
 
                 var showNewGameDialog by remember { mutableStateOf(true) }
 
+                LaunchedEffect(Unit) {
+                    StockfishEngine.start(this@MainActivity, "nn-c288c895ea92.nnue", "nn-37f18f62d772.nnue")
+                }
+
                 ChessGame(
-                    uiState = uiState,
+                    viewModel = viewModel,
                     onSquareClick = viewModel::onSquareClick,
                     onPromote = viewModel::onPromote,
                     onNewGame = { showNewGameDialog = true }
@@ -79,32 +86,72 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    companion object {
+      init {
+         System.loadLibrary("stockfishjni")
+      }
+    }
 }
 
 @Composable
 fun NewGameDialog(onNewGame: (GameMode) -> Unit) {
-    var showColorSelection by remember { mutableStateOf<((PieceColor) -> Unit)?>(null) }
+    var showSettings by remember { mutableStateOf<((PieceColor, StockfishEngine.Difficulty) -> Unit)?>(null) }
 
-    if (showColorSelection != null) {
+    showSettings?.let { startGame ->
+        var selectedColor by remember { mutableStateOf(PieceColor.WHITE) }
+        var selectedDifficulty by remember {mutableStateOf(StockfishEngine.Difficulty.INTERMEDIATE)}
         AlertDialog(
-            onDismissRequest = { showColorSelection = null },
-            title = { Text("Select Your Color") },
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+            modifier = Modifier.fillMaxWidth(0.9f),
+            onDismissRequest = { showSettings = null },
+            title = { Text("Start New Game") },
             text = {
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Button(onClick = { showColorSelection?.invoke(PieceColor.WHITE) }) {
-                        Text("White")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Play as    ")
+                        SingleChoiceSegmentedButtonRow {
+                            PieceColor.entries.zip(listOf("White", "Black"))
+                                .forEachIndexed { idx, (value, label) ->
+                                    SegmentedButton(
+                                        shape = SegmentedButtonDefaults.itemShape(idx, 2),
+                                        onClick = { selectedColor = value },
+                                        selected = selectedColor == value,
+                                        label = {
+                                            Text(
+                                                label,
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
+                                        }
+                                    )
+                                }
+                        }
                     }
-                    Button(onClick = { showColorSelection?.invoke(PieceColor.BLACK) }) {
-                        Text("Black")
+                    Spacer(Modifier.height(16.dp))
+                    SingleChoiceSegmentedButtonRow {
+                        StockfishEngine.Difficulty.entries.zip(listOf("Easy", "Medium", "Hard", "Master")).forEachIndexed { idx, (value, label) ->
+                            SegmentedButton(
+                                shape = SegmentedButtonDefaults.itemShape(idx, 4),
+                                onClick = { selectedDifficulty = value },
+                                selected = selectedDifficulty == value,
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Button({
+                        startGame(selectedColor, selectedDifficulty)
+                    }, Modifier.fillMaxWidth()) {
+                        Text("Start Game")
                     }
                 }
             },
             confirmButton = { }
         )
-    } else {
+    } ?:
         AlertDialog(
             onDismissRequest = { },
             title = { Text(text = "New Game") },
@@ -115,8 +162,8 @@ fun NewGameDialog(onNewGame: (GameMode) -> Unit) {
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(onClick = {
-                        showColorSelection = {
-                            onNewGame(GameMode.VsAI(it))
+                        showSettings = { color, difficulty ->
+                            onNewGame(GameMode.VsAI(color, difficulty))
                         }
                     }) {
                         Text("Human vs AI")
@@ -125,16 +172,16 @@ fun NewGameDialog(onNewGame: (GameMode) -> Unit) {
             },
             confirmButton = {}
         )
-    }
 }
 
 @Composable
 fun ChessGame(
-    uiState: ChessUiState,
+    viewModel: ChessViewModel,
     onSquareClick: (Position) -> Unit,
     onPromote: (PieceType) -> Unit,
     onNewGame: () -> Unit
 ) {
+    val uiState by viewModel.uiState.collectAsState()
     if (uiState.board.promotionPosition != null) {
         PawnPromotionDialog(if (uiState.turn == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE, onPromote = onPromote)
     }
@@ -151,10 +198,7 @@ fun ChessGame(
             Spacer(modifier = Modifier.height(16.dp))
             MovesList(moves = uiState.board.moves, turn = uiState.turn)
             ChessBoard(
-                board = uiState.board,
-                selectedPiece = uiState.selectedPiece,
-                turn = uiState.turn,
-                isFlipped = uiState.isBoardFlipped,
+                viewModel = viewModel,
                 onSquareClick = onSquareClick
             )
             Spacer(modifier = Modifier.height(16.dp))
@@ -241,12 +285,14 @@ fun CapturedPiecesRow(pieces: List<Piece>) {
 
 @Composable
 fun ChessBoard(
-    board: Board,
-    selectedPiece: Position?,
-    turn: PieceColor,
-    isFlipped: Boolean,
+    viewModel: ChessViewModel,
     onSquareClick: (Position) -> Unit
 ) {
+    val uiState by viewModel.uiState.collectAsState()
+    val board = uiState.board
+    val selectedPiece = uiState.selectedPiece
+    val turn = uiState.turn
+    val isFlipped = uiState.isBoardFlipped
     val isKingInCheck = board.isKingInCheck(turn)
     Column(
         Modifier

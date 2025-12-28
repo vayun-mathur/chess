@@ -26,7 +26,7 @@ data class Move(
     val end: Position,
     val piece: Piece,
     val capturedPiece: Piece? = null,
-    val promotedTo: PieceType? = null,
+    var promotedTo: PieceType? = null,
     val isCheck: Boolean = false,
     val isCheckmate: Boolean = false,
     val isCastling: Boolean = false,
@@ -210,19 +210,26 @@ data class Board(
         val newPiece = piece.copy(type = to)
         newPieces[position.row][position.col] = newPiece
 
-        // Update the last move in the history to reflect the promotion
-        // (This is a simplification; in a real app you might merge this with the previous move)
+        // Create a temporary board with the promoted piece to check game state
+        val tempBoard = this.copy(pieces = newPieces.map { it.toList() })
+        val opponentColor = if (piece.color == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE
+        val isCheck = tempBoard.isKingInCheck(opponentColor)
+        val isCheckmate = tempBoard.isCheckmate(opponentColor)
+
+        // Update the last move in the history to reflect the promotion and game state
         val updatedMoves = moves.toMutableList()
+        var updatedLastMove: Move? = null
         if (updatedMoves.isNotEmpty()) {
             val last = updatedMoves.removeAt(updatedMoves.lastIndex)
-            updatedMoves.add(last.copy(promotedTo = to))
+            updatedLastMove = last.copy(promotedTo = to, isCheck = isCheck, isCheckmate = isCheckmate)
+            updatedMoves.add(updatedLastMove)
         }
 
         return this.copy(
-            pieces = newPieces,
+            pieces = newPieces.map { it.toList() },
             promotionPosition = null,
             moves = updatedMoves,
-            lastMove = lastMove?.copy(promotedTo = to),
+            lastMove = updatedLastMove ?: lastMove
         )
     }
 
@@ -445,34 +452,77 @@ data class Board(
         return false
     }
 
-    suspend fun bestNextMove(): Move {
-        val validMoves = mutableListOf<Move>()
-        val turn = moves.lastOrNull()?.piece?.color?.let { if (it == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE } ?: PieceColor.WHITE
-
-        for (r in pieces.indices) {
-            for (c in pieces[r].indices) {
-                val piece = pieces[r][c]
-                if (piece != null && piece.color == turn) {
-                    val start = Position(r, c)
-                    for (i in 0..7) {
-                        for (j in 0..7) {
-                            val end = Position(i, j)
-                            if (isValidMove(start, end)) {
-                                if (isPromotionSquare(piece, end)) {
-                                    validMoves.add(Move(start, end, piece, promotedTo = PieceType.QUEEN))
-                                } else {
-                                    validMoves.add(Move(start, end, piece))
-                                }
-                            }
-                        }
+    fun toFen(): String {
+        val sb = StringBuilder()
+        for (row in pieces) {
+            var empty = 0
+            for (piece in row) {
+                if (piece == null) {
+                    empty++
+                } else {
+                    if (empty > 0) {
+                        sb.append(empty)
+                        empty = 0
                     }
+                    sb.append(getPieceLetter(piece.type, piece.color))
                 }
             }
+            if (empty > 0) {
+                sb.append(empty)
+            }
+            sb.append("/")
         }
+        sb.deleteCharAt(sb.length - 1)
 
-        return validMoves.random()
+        // Turn
+        val turn = moves.lastOrNull()?.piece?.color?.let { if (it == PieceColor.WHITE) "b" else "w" } ?: "w"
+        sb.append(" $turn")
+
+        // Castling availability
+        var castling = ""
+        val whiteKing = pieces[7][4]
+        val blackKing = pieces[0][4]
+        if (whiteKing?.type == PieceType.KING && !whiteKing.hasMoved) {
+            val wrk = pieces[7][7]
+            if (wrk?.type == PieceType.ROOK && !wrk.hasMoved) castling += "K"
+            val wqr = pieces[7][0]
+            if (wqr?.type == PieceType.ROOK && !wqr.hasMoved) castling += "Q"
+        }
+        if (blackKing?.type == PieceType.KING && !blackKing.hasMoved) {
+            val brk = pieces[0][7]
+            if (brk?.type == PieceType.ROOK && !brk.hasMoved) castling += "k"
+            val bqr = pieces[0][0]
+            if (bqr?.type == PieceType.ROOK && !bqr.hasMoved) castling += "q"
+        }
+        sb.append(" ${if (castling.isEmpty()) "-" else castling}")
+
+        // En passant target square
+        val enPassant = if (lastMove != null && lastMove.piece.type == PieceType.PAWN && abs(lastMove.start.row - lastMove.end.row) == 2) {
+            val file = getFileChar(lastMove.start.col)
+            val rank = if (lastMove.piece.color == PieceColor.WHITE) '3' else '6'
+            "$file$rank"
+        } else {
+            "-"
+        }
+        sb.append(" $enPassant")
+
+        // Halfmove clock and fullmove number (not implemented, using 0 and 1)
+        sb.append(" 0 1")
+
+        return sb.toString()
     }
 
+    private fun getPieceLetter(type: PieceType, color: PieceColor): String {
+        val letter = when (type) {
+            PieceType.KING -> "k"
+            PieceType.QUEEN -> "q"
+            PieceType.ROOK -> "r"
+            PieceType.BISHOP -> "b"
+            PieceType.KNIGHT -> "n"
+            PieceType.PAWN -> "p"
+        }
+        return if (color == PieceColor.WHITE) letter.uppercase() else letter
+    }
     private fun getFileChar(col: Int): Char = 'a' + col
     private fun getRankChar(row: Int): Char = '8' - row
 

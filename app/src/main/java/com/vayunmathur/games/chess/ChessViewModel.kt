@@ -2,6 +2,7 @@ package com.vayunmathur.games.chess
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -10,7 +11,7 @@ import kotlinx.coroutines.launch
 
 sealed class GameMode {
     object TwoPlayer : GameMode()
-    data class VsAI(val playerColor: PieceColor) : GameMode()
+    data class VsAI(val playerColor: PieceColor, val difficulty: StockfishEngine.Difficulty) : GameMode()
 }
 
 data class ChessUiState(
@@ -26,10 +27,14 @@ class ChessViewModel : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChessUiState())
     val uiState: StateFlow<ChessUiState> = _uiState.asStateFlow()
+    private val chessApi = ChessApi()
 
     fun onNewGame(gameMode: GameMode) {
         val isFlipped = gameMode is GameMode.VsAI && gameMode.playerColor == PieceColor.BLACK
         _uiState.value = ChessUiState(gameMode = gameMode, isBoardFlipped = isFlipped)
+        if(gameMode is GameMode.VsAI) {
+            StockfishEngine.difficulty = gameMode.difficulty
+        }
         if (gameMode is GameMode.VsAI && gameMode.playerColor == PieceColor.BLACK) {
             makeAiMove()
         }
@@ -68,7 +73,10 @@ class ChessViewModel : ViewModel() {
                 }
                 if (_uiState.value.gameMode is GameMode.VsAI) {
                     if (!isGameOver(newBoard) && newBoard.promotionPosition == null) {
-                        makeAiMove()
+                        viewModelScope.launch {
+                            delay(500)
+                            makeAiMove()
+                        }
                     }
                 }
             } else {
@@ -84,6 +92,7 @@ class ChessViewModel : ViewModel() {
         _uiState.update {
             it.copy(
                 board = newBoard,
+                turn = if (it.turn == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE,
                 gameStatus = getGameStatus(newBoard)
             )
         }
@@ -94,14 +103,11 @@ class ChessViewModel : ViewModel() {
         }
     }
 
-    fun resetGame() {
-        _uiState.value = ChessUiState()
-    }
-
     private fun makeAiMove() {
         viewModelScope.launch {
             val board = _uiState.value.board
-            val bestMove = board.bestNextMove()
+            val bestMove= chessApi.getBestMove(board)
+
             val newBoard = board.movePiece(bestMove.start, bestMove.end, bestMove.promotedTo)
             _uiState.update {
                 it.copy(
@@ -118,10 +124,10 @@ class ChessViewModel : ViewModel() {
     }
 
     private fun getGameStatus(board: Board): String? {
+        val turn = if (_uiState.value.turn == PieceColor.WHITE) PieceColor.BLACK else PieceColor.WHITE
         return when {
-            board.isCheckmate(PieceColor.WHITE) -> "Checkmate! Black wins."
-            board.isCheckmate(PieceColor.BLACK) -> "Checkmate! White wins."
-            board.isKingInCheck(PieceColor.WHITE) || board.isKingInCheck(PieceColor.BLACK) -> "Check!"
+            board.isCheckmate(turn) -> "Checkmate! ${if (turn == PieceColor.WHITE) "Black" else "White"} wins."
+            board.isKingInCheck(turn) -> "Check!"
             else -> null
         }
     }
