@@ -8,6 +8,8 @@ android {
     namespace = "com.vayunmathur.games.chess"
     compileSdk = 36
 
+    ndkVersion = "29.0.14206865"
+
     defaultConfig {
         applicationId = "com.vayunmathur.games.chess"
         minSdk = 30
@@ -45,11 +47,11 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
 
-    implementation("io.ktor:ktor-client-core:3.3.3")
-    implementation("io.ktor:ktor-client-cio:3.3.3")
-    implementation("io.ktor:ktor-client-websockets:3.3.3")
-    implementation("io.ktor:ktor-client-content-negotiation:3.3.3")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:3.3.3")
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.cio)
+    implementation(libs.ktor.client.websockets)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.kotlinx.json)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
